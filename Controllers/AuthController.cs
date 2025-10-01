@@ -5,7 +5,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 
-namespace ApiBase.Web.Controllers
+namespace ApiUniversidad.Controllers
 {
     [ApiController]
     [Route("api/[controller]/[action]")]

@@ -101,11 +101,19 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// // ---------------------
+// // Bind al puerto de Render
+// // ---------------------
+// var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+// app.Urls.Add($"http://0.0.0.0:{port}");  // evita 502 por puerto incorrecto
 // ---------------------
-// Bind al puerto de Render
+// Bind al puerto de Render (solo si PORT existe)
 // ---------------------
-var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
-app.Urls.Add($"http://0.0.0.0:{port}");  // evita 502 por puerto incorrecto
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrEmpty(port))
+{
+    app.Urls.Add($"http://0.0.0.0:{port}");
+}
 
 // Si estás detrás de proxy (Render), respeta cabeceras X-Forwarded-*
 app.UseForwardedHeaders(new ForwardedHeadersOptions
