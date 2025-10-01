@@ -11,7 +11,7 @@ using System.Text;
 namespace ApiBase.Web.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/[controller]/[action]")]
     public class EspaciosController : ControllerBase
     {
         private readonly IConfiguration _config;
