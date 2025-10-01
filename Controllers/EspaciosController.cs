@@ -27,10 +27,23 @@ namespace ApiBase.Web.Controllers
         [HttpGet]
         public async Task<IActionResult> Listar()
         {
-            
+
             // return Ok(new { message = "Acceso autorizado a EspaciosController" });  
 
             var items = await _UniversidadContext.Espacios.ToListAsync();
+            return Ok(items);
+        }
+        
+        
+
+        [Authorize]
+        [HttpGet]
+        public async Task<IActionResult> ListarActivos()
+        {
+
+            // return Ok(new { message = "Acceso autorizado a EspaciosController" });  
+
+            var items = await _UniversidadContext.Espacios.Where(x => x.activo == true).ToListAsync();
             return Ok(items);
         }
     }
