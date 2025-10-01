@@ -1,127 +1,140 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using Microsoft.EntityFrameworkCore;
 using System.Text;
-using Microsoft.OpenApi.Models;using Microsoft.EntityFrameworkCore;
-using ApiBase.DAL.Modelos_BD_Universidad; // Ajusta al namespace real del scaffold
-
-
+using ApiBase.DAL.Modelos_BD_Universidad;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------------------
-// Definir una política de CORS
+// Variables de entorno / config
 // ---------------------
-var corsPolicy = "_allowAll"; // puedes darle otro nombre
+// FRONTEND_ORIGINS: lista separada por coma con los dominios permitidos (prod y dev)
+var frontendOrigins = (builder.Configuration["FRONTEND_ORIGINS"] ?? "")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+// JWT
+var jwt = builder.Configuration.GetSection("Jwt");
+var jwtKey = jwt["Key"] ?? throw new InvalidOperationException("Jwt:Key no configurado");
+var jwtIssuer = jwt["Issuer"];
+var jwtAudience = jwt["Audience"];
+
+// ---------------------
+// DbContext (PostgreSQL)
+// ---------------------
+// Render (o cualquier PaaS) suele requerir SSL. Ajusta si tu DB lo exige.
+var conn = builder.Configuration.GetConnectionString("BD_Universidad")
+           ?? builder.Configuration["DATABASE_URL"]; // fallback por si la defines así
+builder.Services.AddDbContext<BD_UniversidadContext>(options =>
+    options.UseNpgsql(conn, npgsql =>
+    {
+        // si tu proveedor lo requiere:
+        // npgsql.SetPostgresVersion(16, 0);
+    })
+);
+
+// ---------------------
+// CORS
+// ---------------------
+const string CorsPolicy = "FrontendPolicy";
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(name: corsPolicy,
-        policy =>
+    options.AddPolicy(name: CorsPolicy, policy =>
+    {
+        if (frontendOrigins.Length > 0)
         {
-            policy.AllowAnyOrigin()
+            policy.WithOrigins(frontendOrigins)
                   .AllowAnyHeader()
                   .AllowAnyMethod();
-            // policy.WithOrigins("https://localhost:7243", "http://localhost:5271")
-            //     .AllowAnyHeader()
-            //     .AllowAnyMethod();
-        });
-        
+            // .AllowCredentials(); // solo si vas a usar cookies/sesión
+        }
+        else
+        {
+            // fallback (menos seguro): abre todo mientras configuras FRONTEND_ORIGINS
+            policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+        }
+    });
 });
 
 // ---------------------
-// Configuración del DbContext
+// Auth (JWT)
 // ---------------------
-builder.Services.AddDbContext<BD_UniversidadContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("BD_Universidad")));
+builder.Services
+    .AddAuthentication(o =>
+    {
+        o.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        o.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(o =>
+    {
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = !string.IsNullOrEmpty(jwtIssuer),
+            ValidateAudience = !string.IsNullOrEmpty(jwtAudience),
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+    });
 
-// ---------------------
-// Configuración de servicios
-// ---------------------
+builder.Services.AddAuthorization();
+builder.Services.AddControllers();
 
-// Swagger/OpenAPI
+// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "ApiBase", Version = "v1" });
-
-    // ✅ Esquema HTTP Bearer (Swagger agrega "Bearer " solo)
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Type = SecuritySchemeType.Http,
         Scheme = "bearer",
         BearerFormat = "JWT",
-        Description = "Autenticación JWT. Pega solo el token (sin 'Bearer ')."
+        Description = "Pega solo el token (sin 'Bearer ')."
     });
-
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
+        { new OpenApiSecurityScheme { Reference = new OpenApiReference
+            { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }, new string[] {} }
     });
 });
-
-// Configuración JWT
-var jwtConfig = builder.Configuration.GetSection("Jwt");
-var key = Encoding.UTF8.GetBytes(jwtConfig["Key"]);
-
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtConfig["Issuer"],
-        ValidAudience = jwtConfig["Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(key)
-    };
-});
-
-builder.Services.AddAuthorization();
-
-// Controllers (para que puedas usar atributos como [Authorize])
-builder.Services.AddControllers();
 
 var app = builder.Build();
 
-// Activar CORS (antes de Authentication/Authorization)
-app.UseCors(corsPolicy);
+// ---------------------
+// Bind al puerto de Render
+// ---------------------
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+app.Urls.Add($"http://0.0.0.0:{port}");  // evita 502 por puerto incorrecto
+
+// Si estás detrás de proxy (Render), respeta cabeceras X-Forwarded-*
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedFor
+});
 
 // ---------------------
 // Middleware
 // ---------------------
-// if (app.Environment.IsDevelopment())
-// {
-//     app.UseSwagger();
-//     app.UseSwaggerUI();
-// }
+// En Render puedes mantener Swagger habilitado
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.UseHttpsRedirection();
+app.UseCors(CorsPolicy);
 
-app.UseAuthentication(); // 👈 antes de UseAuthorization
+// En Render, si HSTS/HTTPS te estorba, puedes comentarlo.
+// app.UseHttpsRedirection();
+
+app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapControllers(); // para tus controladores
+app.MapControllers();
 
-// Ruta raíz "/" con un texto simple
+// Ping simple
 app.MapGet("/", () => Results.Text("API Base corriendo correctamente."));
 
 app.Run();
-
-
