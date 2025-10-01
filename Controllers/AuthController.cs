@@ -21,7 +21,7 @@ namespace ApiBase.Web.Controllers
             _UniversidadContext = bD_UniversidadContext;
         }
 
-        [HttpPost("login")]
+        [HttpPost]
         public IActionResult Login([FromBody] LoginModel model)
         {
             // Aquí debería ir la validación contra la BD o servicio de usuarios
