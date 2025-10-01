@@ -43,18 +43,14 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: CorsPolicy, policy =>
     {
-        if (frontendOrigins.Length > 0)
-        {
-            policy.WithOrigins(frontendOrigins)
-                  .AllowAnyHeader()
-                  .AllowAnyMethod();
-            // .AllowCredentials(); // solo si vas a usar cookies/sesión
-        }
-        else
-        {
-            // fallback (menos seguro): abre todo mientras configuras FRONTEND_ORIGINS
-            policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
-        }
+        // 🔐 En producción: permitir solo el dominio del front
+        policy.WithOrigins(
+            "https://vue-universidad.onrender.com", // front en Render
+            "http://localhost:5173",                // dev local
+            "https://localhost:5173"                // dev local https
+        )
+        .AllowAnyHeader()
+        .AllowAnyMethod();
     });
 });
 
